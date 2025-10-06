@@ -4,9 +4,10 @@
 
 ## What has been done:
 
-1. Created draft version with BME280 values
+1. ~~Created draft version with BME280 values~~
 
 ## What need to be done:
+
 1. Complete **pre-MVP** version:
   - Simple _dashbord_ with time and sensors values
   - Clean code
