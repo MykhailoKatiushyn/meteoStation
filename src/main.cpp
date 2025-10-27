@@ -71,11 +71,18 @@ void correctHumidity(float temp, float hum) {
     }
 }
 
+float calcIAQ(float eCO2, float TVOC) {
+  float TVOC_sub = constrain((TVOC / 5000.0) * 500.0, 0, 500);
+  float CO2_sub  = constrain(((eCO2 - 400.0) / (2000.0 - 400.0)) * 500.0, 0, 500);
+  float IAQ = 0.7 * TVOC_sub + 0.3 * CO2_sub;
+  return IAQ;
+}
+
 //----------------------------------- UI Draw
 
-void drawValue(float value, int y, const char* unit, uint16_t color) {
-    tft.setTextSize(2);
-    tft.setCursor(50, y);
+void drawValue(float value, uint16_t x, uint16_t y, const char* unit, uint16_t color) {
+    tft.setTextSize(3);
+    tft.setCursor(x, y);
     tft.print(value, 1);
     tft.setTextColor(color, TFT_BLACK);
     tft.print(unit);
@@ -211,11 +218,26 @@ void loop() {
     dataSGP30 readingsSGP30 = readSGP30();
     lastSensorRead = now;
 
-    drawValue(readingsBME280.temp, 50, " C", TFT_RED);
-    drawValue(readingsBME280.hum, 65, " %", TFT_BLUE);
-    drawValue(readingsBME280.press, 80, " mmHg", TFT_GREEN);
+    drawValue(readingsBME280.temp,15, 60, " C", TFT_RED);
+    drawValue(readingsBME280.hum, 15, 95, " %", TFT_BLUE);
+    drawValue(readingsBME280.press, 135, 60, " mmHg", TFT_GREEN);
 
-    drawValue(readingsSGP30.eco2, 95, " eco2", TFT_GREEN);
-    drawValue(readingsSGP30.tvoc, 110, " tvoc", TFT_GREEN);
+    uint16_t aqi = calcIAQ(readingsSGP30.eco2, readingsSGP30.tvoc);
+    if (aqi <= 30) {
+        drawValue(aqi, 135, 95, " AQI", TFT_GREEN);
+    } else if (aqi > 30 && aqi <= 50) {
+        drawValue(aqi, 135, 95, " AQI", TFT_GREENYELLOW);
+    } else if (aqi > 50 && aqi <= 80) {
+        drawValue(aqi, 135, 95, " AQI", TFT_YELLOW);
+    } else if (aqi > 80 && aqi <= 120) {
+        drawValue(aqi, 135, 95, " AQI", TFT_ORANGE);
+    } else {
+        drawValue(aqi, 135, 95, " AQI", TFT_RED);
+    }
+
+    tft.setTextSize(2);
+    tft.setCursor(155, 0);
+    tft.print(readingsSGP30.eco2, 1);
+    tft.print(readingsSGP30.tvoc, 1);
   }
 }
