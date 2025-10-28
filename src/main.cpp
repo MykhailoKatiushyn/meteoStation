@@ -11,15 +11,26 @@
 
 using fs::File; // For LittleFS
 
-//----------------------------------- Time variables
+//----------------------------------- Button and screen logic
+
+#define BUTTON 15
+int currentScreen = 0;
+bool lastButtonState = HIGH;
+
+//----------------------------------- Global constants etc
 
 const char* ssid = "myNET";
 const char* password = "Li#lu~2014";
 const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = 10800;  // GMT+3
+const long gmtOffset_sec = 7200;  // GMT+2
 const int daylightOffset_sec = 0;
 
-bool firstTimeRead = true; // flag for fitst void loop iteration
+bool firstTimeRead = true; // flags for fitst void loop iteration
+bool firstSensorsRead = true;
+
+const int sensorInterval = 5000;
+const int timeInterval = 30000;
+
 //----------------------------------- Init
 
 Adafruit_BME280 bme;
@@ -37,32 +48,18 @@ struct dataBME280 {
 struct dataSGP30 {
     float eco2;
     float tvoc;
+    float iaq;
 };
 
-unsigned long lastSensorRead = 0;
-const int sensorInterval = 5000;
-bool firstSensorsRead = true; // flag for fitst void loop iteration
+struct SensorData {
+  dataBME280 bmeData;
+  dataSGP30 sgpData;
+  struct tm timeinfo;
+};
 
-dataBME280 readBME280() {
-    dataBME280 data;
+SensorData sensors;
 
-    data.temp = bme.readTemperature();
-    data.hum = bme.readHumidity();
-    data.press = bme.readPressure() / 133.322F;
 
-    return data;
-}
-
-dataSGP30 readSGP30() {
-    dataSGP30 data;
-
-    if (sgp.IAQmeasure()) {
-        data.eco2 = sgp.eCO2;
-        data.tvoc = sgp.TVOC;
-    }
-
-    return data;
-}
 
 void correctHumidity(float temp, float hum) {
     if (!isnan(temp) && !isnan(hum)) {
@@ -78,15 +75,62 @@ float calcIAQ(float eCO2, float TVOC) {
   return IAQ;
 }
 
+void updateSensors() {
+  sensors.bmeData.temp = bme.readTemperature();
+  sensors.bmeData.hum = bme.readHumidity();
+  sensors.bmeData.press = bme.readPressure() / 133.322F;
+  
+  correctHumidity(sensors.bmeData.temp, sensors.bmeData.hum);
+
+  if (sgp.IAQmeasure()) {
+    sensors.sgpData.eco2 = sgp.eCO2;
+    sensors.sgpData.tvoc = sgp.TVOC;
+  }
+
+  sensors.sgpData.iaq = calcIAQ(sensors.sgpData.eco2, sensors.sgpData.tvoc);
+}
+
+void updateTime() {
+  getLocalTime(&sensors.timeinfo);
+}
+
 //----------------------------------- UI Draw
 
 void drawValue(float value, uint16_t x, uint16_t y, const char* unit, uint16_t color) {
-    tft.setTextSize(3);
     tft.setCursor(x, y);
     tft.print(value, 1);
     tft.setTextColor(color, TFT_BLACK);
     tft.print(unit);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
+}
+
+void drawDashboard() {
+    //Time draw
+
+    tft.setTextSize(5);
+    tft.setCursor(80, 10);
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.print(&sensors.timeinfo, "%H:%M");
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    
+    //Values draw
+    
+
+    tft.setTextSize(3);
+    drawValue(sensors.bmeData.temp, 15, 60, " C", TFT_RED);
+    drawValue(sensors.bmeData.hum, 15, 95, " %", TFT_BLUE);
+    drawValue(sensors.bmeData.press, 135, 60, " mmHg", TFT_GREEN);
+
+    float iaq = sensors.sgpData.iaq;
+    uint16_t color;
+
+    if (iaq <= 30) color = TFT_GREEN;
+    else if (iaq <= 50) color = TFT_GREENYELLOW;
+    else if (iaq <= 80) color = TFT_YELLOW;
+    else if (iaq <= 120) color = TFT_ORANGE;
+    else color = TFT_RED;
+
+    drawValue(iaq, 135, 95, " IAQ  ", color);
 }
 
 //----------------------------------- SGP30 Calibration load
@@ -105,19 +149,27 @@ bool loadBaseline() {
   return false;
 }
 
+//----------------------------------- Log
+
 void logMeassage (const char* mess, bool type) {
     if (type) {
-        tft.setTextColor(TFT_GREEN);
+        tft.setTextColor(TFT_GREEN, TFT_BLACK);
         tft.println(mess);
     } else {
-        tft.setTextColor(TFT_RED);
+        tft.setTextColor(TFT_RED, TFT_BLACK);
         tft.println(mess);
     }
 }
+
+
 //----------------------------------- Setup
+
+
 
 void setup() {
   Serial.begin(115200);
+
+  pinMode(BUTTON, INPUT_PULLUP);
 
   tft.init();
   tft.setRotation(1);
@@ -188,56 +240,52 @@ void setup() {
   tft.fillScreen(TFT_BLACK);
 }
 
+
+
 void loop() {
-  static unsigned long lastUpdate = 0;
   unsigned long now = millis();
+  bool shouldRedraw = true;
 
+  // bool buttonState = digitalRead(BUTTON);
+
+  // if (lastButtonState == HIGH && buttonState == LOW) {
+  //     currentScreen = !currentScreen;
+  //     if (currentScreen == 0) {
+  //       Serial.println("Screen 2");
+  //     } else {
+  //       Serial.println("Screen 2");
+  //     }
+  // }
+
+  // lastButtonState = buttonState;
+  
   //------------------- Time update
+  
+  static unsigned long lastUpdate = 0;
 
-  if(firstTimeRead || millis() - lastUpdate >= 30000) {
+  if(firstTimeRead || now - lastUpdate >= timeInterval) {
+    updateTime();
+
     firstTimeRead = false;
-    lastUpdate = millis();
-    
-    struct tm timeinfo;
-    if(getLocalTime(&timeinfo)){
-      tft.setTextSize(5);
-      tft.setCursor(80, 10);
-      tft.setTextColor(TFT_GREEN, TFT_BLACK);
-      tft.print(&timeinfo, "%H:%M");
-    }
+    lastUpdate = now;
+    shouldRedraw = true;
   }
 
   //------------------- Values update
 
+  static unsigned long lastSensorRead = 0;
+
   if (firstSensorsRead || now - lastSensorRead >= sensorInterval) {
+    updateSensors();
+
     firstSensorsRead = false;
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    
-    dataBME280 readingsBME280 = readBME280();
-    correctHumidity(readingsBME280.temp, readingsBME280.hum);
-    dataSGP30 readingsSGP30 = readSGP30();
     lastSensorRead = now;
-
-    drawValue(readingsBME280.temp,15, 60, " C", TFT_RED);
-    drawValue(readingsBME280.hum, 15, 95, " %", TFT_BLUE);
-    drawValue(readingsBME280.press, 135, 60, " mmHg", TFT_GREEN);
-
-    uint16_t aqi = calcIAQ(readingsSGP30.eco2, readingsSGP30.tvoc);
-    if (aqi <= 30) {
-        drawValue(aqi, 135, 95, " AQI", TFT_GREEN);
-    } else if (aqi > 30 && aqi <= 50) {
-        drawValue(aqi, 135, 95, " AQI", TFT_GREENYELLOW);
-    } else if (aqi > 50 && aqi <= 80) {
-        drawValue(aqi, 135, 95, " AQI", TFT_YELLOW);
-    } else if (aqi > 80 && aqi <= 120) {
-        drawValue(aqi, 135, 95, " AQI", TFT_ORANGE);
-    } else {
-        drawValue(aqi, 135, 95, " AQI", TFT_RED);
-    }
-
-    tft.setTextSize(2);
-    tft.setCursor(155, 0);
-    tft.print(readingsSGP30.eco2, 1);
-    tft.print(readingsSGP30.tvoc, 1);
+    shouldRedraw = true;
   }
+
+  if (shouldRedraw) {
+    drawDashboard();
+    shouldRedraw = false;
+  }
+
 }
