@@ -13,7 +13,7 @@ using fs::File; // For LittleFS
 
 //----------------------------------- Button and screen logic
 
-#define BUTTON 15
+#define BUTTON 16
 int currentScreen = 0;
 bool lastButtonState = HIGH;
 
@@ -133,6 +133,12 @@ void drawDashboard() {
     drawValue(iaq, 135, 95, " IAQ  ", color);
 }
 
+void drawIAQScreen() {
+  tft.setTextSize(3);
+  drawValue(sensors.sgpData.eco2, 15, 60, " eCO2", TFT_BLUE);
+  drawValue(sensors.sgpData.tvoc, 15, 95, " TVOC", TFT_COLMOD);
+}
+
 //----------------------------------- SGP30 Calibration load
 
 bool loadBaseline() {
@@ -245,19 +251,23 @@ void setup() {
 void loop() {
   unsigned long now = millis();
   bool shouldRedraw = true;
+  bool shouldClear = false;
 
-  // bool buttonState = digitalRead(BUTTON);
+  bool buttonState = digitalRead(BUTTON);
 
-  // if (lastButtonState == HIGH && buttonState == LOW) {
-  //     currentScreen = !currentScreen;
-  //     if (currentScreen == 0) {
-  //       Serial.println("Screen 2");
-  //     } else {
-  //       Serial.println("Screen 2");
-  //     }
-  // }
+  if (lastButtonState == HIGH && buttonState == LOW) {
+      currentScreen = !currentScreen;
+      shouldClear = true;
+      Serial.print("buttonState: ");
+      Serial.println(buttonState);
+      Serial.print("currentScreen: ");
+      Serial.println(currentScreen);
+      Serial.print("lastButtonState: ");
+      Serial.println(lastButtonState);
+  }
 
-  // lastButtonState = buttonState;
+  lastButtonState = buttonState;
+
   
   //------------------- Time update
   
@@ -283,9 +293,17 @@ void loop() {
     shouldRedraw = true;
   }
 
-  if (shouldRedraw) {
-    drawDashboard();
-    shouldRedraw = false;
-  }
+  if (shouldClear) {
+    tft.fillScreen(TFT_BLACK);
 
+    if (!currentScreen) drawDashboard();
+    else drawIAQScreen();
+
+    shouldClear = false;
+  } else if (shouldRedraw) {
+    if (!currentScreen) drawDashboard();
+    else drawIAQScreen();
+
+    shouldRedraw = false; 
+  }
 }
